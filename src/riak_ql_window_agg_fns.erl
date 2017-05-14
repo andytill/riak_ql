@@ -30,6 +30,7 @@
 -export([fn_arity/1]).
 -export([fn_type_signature/2]).
 -export([fn_param_check/2]).
+-export([merge/3]).
 -export([supported_functions/0]).
 
 -type aggregate_function() :: 'COUNT' | 'SUM' | 'AVG' |'MEAN' | 'MIN' | 'MAX' | 'STDDEV' | 'STDDEV_POP' | 'STDDEV_SAMP'.
@@ -94,6 +95,9 @@ start_state(_)        -> stateless.
 start_state_stddev() ->
     {0, 0.0, 0.0}.
 
+merge('COUNT', A, B) ->
+    A + B.
+
 %% Calculate the final results using the accumulated result.
 -spec finalise(aggregate_function(), any()) -> any().
 finalise(_, ?SQL_NULL) ->
@@ -123,7 +127,7 @@ finalise(_Fn, Acc) ->
 
 'COUNT'(?SQL_NULL, State) ->
     State;
-'COUNT'(_, State) ->
+'COUNT'(_, State) when is_integer(State) ->
     State + 1.
 
 'SUM'(Arg, State) when is_number(Arg), is_number(State) ->
