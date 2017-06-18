@@ -92,13 +92,10 @@ start_state('SUM')    -> ?SQL_NULL;
 start_state(_)        -> stateless.
 
 %%
-start_state_stddev() ->
-    {0, 0.0, 0.0}.
 
-%%
 merge(_, ?SQL_NULL, ?SQL_NULL) -> ?SQL_NULL;
-merge(_, A, ?SQL_NULL) -> A;
 merge(_, ?SQL_NULL, B) -> B;
+merge(_, A, ?SQL_NULL) -> A;
 merge('AVG', A, B)  -> merge_mean_average(A, B);
 merge('COUNT', A, B) -> A + B;
 merge('MAX', A, B) -> 'MAX'(A,B);
@@ -106,7 +103,8 @@ merge('MEAN', A, B) -> 'merge_mean_average'(A, B);
 merge('MIN', A, B) -> 'MIN'(A,B);
 merge('STDDEV', A, B) -> merge_stddev(A, B);
 merge('STDDEV_POP', A, B) -> merge_stddev(A, B);
-merge('STDDEV_SAMP', A, B) -> merge_stddev(A, B).
+merge('STDDEV_SAMP', A, B) -> merge_stddev(A, B);
+merge('SUM', A, B) -> A + B.
 
 merge_mean_average({NA, AccA}, {NB, AccB}) ->
     {NA+NB, AccA+AccB}.
@@ -124,11 +122,11 @@ finalise(Stddev, {N, _, _}) when (Stddev == 'STDDEV' orelse Stddev == 'STDDEV_PO
     % STDDEV_POP must have two or more values to or return NULL
     ?SQL_NULL;
 finalise('STDDEV', State) ->
-    finalise('STDDEV_SAMP', State);
-finalise('STDDEV_POP', {N, _, Q}) ->
-    math:sqrt(Q / N);
-finalise('STDDEV_SAMP', {N, _, Q}) ->
-    math:sqrt(Q / (N-1));
+    finalise_stddev(State);
+finalise('STDDEV_SAMP', State) ->
+    finalise_stddev(State);
+finalise('STDDEV_POP', State) ->
+    finalise_stddev(State);
 finalise(_Fn, Acc) ->
     Acc.
 
@@ -173,6 +171,10 @@ finalise(_Fn, Acc) ->
 'MAX'(Arg, State) when Arg > State -> Arg;
 'MAX'(_, State) -> State.
 
+%% {Count, Deviation, Average}
+start_state_stddev() ->
+    {0,  0.0, 0.0}.
+
 'STDDEV'(Arg, State) ->
     'STDDEV_POP'(Arg, State).
 
@@ -188,16 +190,20 @@ finalise(_Fn, Acc) ->
 'STDDEV_POP'(_, State) ->
     State.
 
-merge_stddev({NA, AA, QA}, {NB, AB, QB}) ->
-    % N = NA/NB,
+merge_stddev({N1, A1, _Q1}, {N2, A2, Q2}) ->
+    N3 = N1 + N2,
+    A3 = A2 + (A1 - A2) / N3,
+    Q3 = Q2 + (A2 - A1) * (10 - A1),
+    {N3, A3, Q3}.
 
-    A = (AA+AB)/2,
-    Q = QA +QB,
-    {NA+NB, A, Q/2}.
+finalise_stddev({N, _A, Q}) ->
+    math:sqrt(Q/N).
+
 %%
 add(?SQL_NULL, _) -> ?SQL_NULL;
 add(_, ?SQL_NULL) -> ?SQL_NULL;
 add(A, B)         -> A + B.
+
 
 %%
 divide(?SQL_NULL, _) -> ?SQL_NULL;
