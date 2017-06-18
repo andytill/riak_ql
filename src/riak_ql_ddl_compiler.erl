@@ -125,14 +125,15 @@ compile(?DDL{ table = Table, fields = Fields } = DDL) ->
     {MinDDLCapFn,      LineNo14} = build_min_ddl_version_fn(DDL, LineNo13),
     {DeleteKeyFn,      LineNo15} = build_delete_key_fn(DDL, LineNo14, []),
     {AdditionalLocalKeyFn, LineNo16} = build_additional_local_key_fields_fn(DDL, LineNo15),
+    {PKeyFieldNamesFn, LineNo17} = build_partition_key_field_names_fn(DDL,LineNo16),
     AST = Attrs
         ++ VFns
         ++ ACFns
         ++ [ExtractFn, GetTypeFn, GetPosnFn, GetPosnsFn, IsValidFn, DDLVersionFn,
             GetDDLFn, FieldOrdersFn, RevertOrderingFn, MinDDLCapFn, DeleteKeyFn,
-            AdditionalLocalKeyFn]
+            AdditionalLocalKeyFn, PKeyFieldNamesFn]
         ++ HashFns
-        ++ [{eof, LineNo16}],
+        ++ [{eof, LineNo17}],
     case erl_lint:module(AST) of
         {ok, []} ->
             {ModName, AST};
@@ -160,6 +161,18 @@ build_additional_local_key_fields_source(DDL) ->
 additional_local_key_fields(?DDL{partition_key = #key_v1{ast = PK},
                                  local_key = #key_v1{ast = LK}}) ->
     [N || ?SQL_PARAM{name = [N]} <- lists:nthtail(length(PK), LK)].
+
+build_partition_key_field_names_fn(DDL, LineNo) ->
+    {?Q(build_partition_key_field_names_source(DDL)), LineNo+1}.
+
+build_partition_key_field_names_source(?DDL{partition_key = #key_v1{ast = PK}}) ->
+    FieldNames = [pk_element_to_name(PK_field) || PK_field <- PK],
+    lists:flatten(io_lib:format("partition_key_field_names() -> ~w.",[FieldNames])).
+
+pk_element_to_name(?SQL_PARAM{name = [N]}) when is_binary(N) -> N;
+pk_element_to_name(#hash_fn_v1{fn = quantum,
+                               args = [?SQL_PARAM{name = [N]}|_]}) when is_binary(N) ->
+    N.
 
 %% Compile the module, write it to /tmp then load it into the VM.
 -spec compile_and_load_from_tmp(?DDL{}) ->
@@ -597,21 +610,22 @@ make_module_attr(ModName, LineNo) ->
 make_export_attr(LineNo) ->
     {{attribute, LineNo, export, [
                                   {add_column_info,              1},
+                                  {additional_local_key_fields,  0},
                                   {extract,                      2},
                                   {field_orders,                 0},
                                   {get_ddl,                      0},
                                   {get_ddl_compiler_version,     0},
+                                  {get_delete_key,               1},
                                   {get_field_position,           1},
                                   {get_field_positions,          0},
                                   {get_field_type,               1},
                                   {get_identity_hashes,          0},
                                   {get_identity_plaintext_DEBUG, 0},
-                                  {is_field_valid,               1},
-                                  {revert_ordering_on_local_key, 1},
-                                  {validate_obj,                 1},
                                   {get_min_required_ddl_cap,     0},
-                                  {get_delete_key,               1},
-                                  {additional_local_key_fields,  0}
+                                  {is_field_valid,               1},
+                                  {partition_key_field_names,    0},
+                                  {revert_ordering_on_local_key, 1},
+                                  {validate_obj,                 1}
                                  ]}, LineNo + 1}.
 
 %% supporting functions
