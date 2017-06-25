@@ -30,6 +30,7 @@
 -export([fn_arity/1]).
 -export([fn_type_signature/2]).
 -export([fn_param_check/2]).
+-export([merge/3]).
 -export([supported_functions/0]).
 
 -type aggregate_function() :: 'COUNT' | 'SUM' | 'AVG' |'MEAN' | 'MIN' | 'MAX' | 'STDDEV' | 'STDDEV_POP' | 'STDDEV_SAMP'.
@@ -80,9 +81,9 @@ fn_arity(_FnName) -> 1.
 -spec start_state(aggregate_function()) ->
     any().
 start_state('AVG')    -> ?SQL_NULL;
-start_state('MEAN')   -> start_state('AVG');
 start_state('COUNT')  -> 0;
 start_state('MAX')    -> ?SQL_NULL;
+start_state('MEAN')   -> start_state('AVG');
 start_state('MIN')    -> ?SQL_NULL;
 start_state('STDDEV') -> start_state_stddev();
 start_state('STDDEV_POP') -> start_state_stddev();
@@ -91,8 +92,23 @@ start_state('SUM')    -> ?SQL_NULL;
 start_state(_)        -> stateless.
 
 %%
-start_state_stddev() ->
-    {0, 0.0, 0.0}.
+
+merge(_, ?SQL_NULL, ?SQL_NULL) -> ?SQL_NULL;
+merge(_, ?SQL_NULL, B) -> B;
+merge(_, A, ?SQL_NULL) -> A;
+merge('AVG', A, B)  -> merge_mean_average(A, B);
+merge('COUNT', A, B) -> A + B;
+merge('MAX', A, B) -> 'MAX'(A,B);
+merge('MEAN', A, B) -> 'merge_mean_average'(A, B);
+merge('MIN', A, B) -> 'MIN'(A,B);
+merge('STDDEV', A, B) -> merge_stddev(A, B);
+merge('STDDEV_POP', A, B) -> merge_stddev(A, B);
+merge('STDDEV_SAMP', A, B) -> merge_stddev(A, B);
+merge('SUM', A, B) -> A + B.
+
+merge_mean_average({NA, AccA}, {NB, AccB}) ->
+    {NA+NB, AccA+AccB}.
+
 
 %% Calculate the final results using the accumulated result.
 -spec finalise(aggregate_function(), any()) -> any().
@@ -106,11 +122,11 @@ finalise(Stddev, {N, _, _}) when (Stddev == 'STDDEV' orelse Stddev == 'STDDEV_PO
     % STDDEV_POP must have two or more values to or return NULL
     ?SQL_NULL;
 finalise('STDDEV', State) ->
-    finalise('STDDEV_SAMP', State);
-finalise('STDDEV_POP', {N, _, Q}) ->
-    math:sqrt(Q / N);
-finalise('STDDEV_SAMP', {N, _, Q}) ->
-    math:sqrt(Q / (N-1));
+    finalise_stddev(State);
+finalise('STDDEV_SAMP', State) ->
+    finalise_stddev(State);
+finalise('STDDEV_POP', State) ->
+    finalise_stddev(State);
 finalise(_Fn, Acc) ->
     Acc.
 
@@ -123,7 +139,7 @@ finalise(_Fn, Acc) ->
 
 'COUNT'(?SQL_NULL, State) ->
     State;
-'COUNT'(_, State) ->
+'COUNT'(_, State) when is_integer(State) ->
     State + 1.
 
 'SUM'(Arg, State) when is_number(Arg), is_number(State) ->
@@ -155,7 +171,14 @@ finalise(_Fn, Acc) ->
 'MAX'(Arg, State) when Arg > State -> Arg;
 'MAX'(_, State) -> State.
 
+%% {Count, Deviation, Average}
+start_state_stddev() ->
+    {0,  0.0, 0.0}.
+
 'STDDEV'(Arg, State) ->
+    'STDDEV_POP'(Arg, State).
+
+'STDDEV_SAMP'(Arg, State) ->
     'STDDEV_POP'(Arg, State).
 
 'STDDEV_POP'(Arg, {N_old, A_old, Q_old}) when is_number(Arg) ->
@@ -167,13 +190,20 @@ finalise(_Fn, Acc) ->
 'STDDEV_POP'(_, State) ->
     State.
 
-'STDDEV_SAMP'(Arg, State) ->
-    'STDDEV_POP'(Arg, State).
+merge_stddev({N1, A1, _Q1}, {N2, A2, Q2}) ->
+    N3 = N1 + N2,
+    A3 = A2 + (A1 - A2) / N3,
+    Q3 = Q2 + (A2 - A1) * (10 - A1),
+    {N3, A3, Q3}.
+
+finalise_stddev({N, _A, Q}) ->
+    math:sqrt(Q/N).
 
 %%
 add(?SQL_NULL, _) -> ?SQL_NULL;
 add(_, ?SQL_NULL) -> ?SQL_NULL;
 add(A, B)         -> A + B.
+
 
 %%
 divide(?SQL_NULL, _) -> ?SQL_NULL;
@@ -198,7 +228,6 @@ subtract(A, B)         -> A - B.
 -include_lib("eunit/include/eunit.hrl").
 
 stddev_pop_test() ->
-    State0 = start_state('STDDEV_POP'),
     Data = [
             1.0, 2.0, 3.0, 4.0, 2.0,
             3.0, 4.0, 4.0, 4.0, 3.0,
@@ -211,22 +240,56 @@ stddev_pop_test() ->
     %% need to run python on that arch to figure out what Expected
     %% value can be then.  Or, introduce an epsilon and check that the
     %% delta is small enough.
-    State9 = lists:foldl(fun 'STDDEV_POP'/2, State0, Data),
+    State9 = lists:foldl(fun 'STDDEV_POP'/2, start_state('STDDEV_POP'), Data),
     Got = finalise('STDDEV_POP', State9),
     ?assertEqual(Expected, Got).
 
 stddev_samp_test() ->
-    State0 = start_state('STDDEV_SAMP'),
     Data = [
             1.0, 2.0, 3.0, 4.0, 2.0,
             3.0, 4.0, 4.0, 4.0, 3.0,
             2.0, 3.0, 2.0, 1.0, 1.0
            ],
-    State9 = lists:foldl(fun 'STDDEV_SAMP'/2, State0, Data),
+    State9 = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data),
     %% expected value calulated usingpostgres STDDEV_SAMP
     ?assertEqual(
         1.1212238211627762,
         finalise('STDDEV_SAMP', State9)
+    ).
+
+stddev_merge_no_finalise_test() ->
+    Data_a = [
+              1.0, 2.0, 3.0, 4.0, 2.0,
+              3.0, 4.0, 4.0, 4.0, 3.0
+             ],
+    Data_b = [
+              2.0, 3.0, 2.0, 1.0, 1.0
+             ],
+    State_a = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data_a),
+    State_b = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data_b),
+    State_merged = merge_stddev(State_a, State_b),
+    State_x = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data_a++Data_b),
+    %% expected value calulated usingpostgres STDDEV_SAMP
+    ?assertEqual(
+        State_x,
+        State_merged
+    ).
+
+stddev_merge_test() ->
+    Data_a = [
+              1.0, 2.0, 3.0, 4.0, 2.0,
+              3.0, 4.0, 4.0, 4.0, 3.0
+             ],
+    Data_b = [
+              2.0, 3.0, 2.0, 1.0, 1.0
+             ],
+    State_a = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data_a),
+    State_b = lists:foldl(fun 'STDDEV_SAMP'/2, start_state('STDDEV_SAMP'), Data_b),
+    State = merge_stddev(State_a, State_b),
+    %% expected value calulated usingpostgres STDDEV_SAMP
+    ?assertEqual(
+        1.1212238211627762,
+        finalise('STDDEV_SAMP', State)
     ).
 
 stddev_pop_no_value_test() ->
