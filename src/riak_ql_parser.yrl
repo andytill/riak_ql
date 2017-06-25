@@ -182,10 +182,13 @@ WindowClause -> WindowOrderClause: '$1'.
 WindowOrderClause -> order by SortSpecificationList                                : make_orderby('$3', undefined, undefined).
 WindowOrderClause -> order by SortSpecificationList LimitClause                    : make_orderby('$3', '$4', undefined).
 WindowOrderClause -> order by SortSpecificationList LimitClause ResultOffsetClause : make_orderby('$3', '$4', '$5').
+WindowOrderClause -> order by SortSpecificationList ResultOffsetClause LimitClause : make_orderby('$3', '$5', '$4').
 WindowOrderClause ->                                LimitClause                    : make_orderby([], '$1', undefined).
 WindowOrderClause ->                                LimitClause ResultOffsetClause : make_orderby([], '$1', '$2').
+WindowOrderClause ->                                ResultOffsetClause LimitClause : make_orderby([], '$2', '$1').
 
 LimitClause -> limit integer         : '$2'.
+
 ResultOffsetClause -> offset integer : '$2'.
 
 SortSpecificationList -> SortSpecification: ['$1'].

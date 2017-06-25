@@ -237,6 +237,60 @@ group_by_two_fields_test() ->
         riak_ql_parser:ql_parse(riak_ql_lexer:get_tokens(Query_sql))
     ).
 
+limit_offset_test() ->
+    Query_sql =
+        "SELECT a, b FROM mytab "
+        "WHERE a = 1 "
+        "LIMIT 10 OFFSET 20;",
+    ?assertEqual(
+        {select, [
+                  {tables, <<"mytab">>},
+                  {fields, [{identifier, [<<"a">>]}, {identifier, [<<"b">>]}]},
+                  {where,  [{'=', <<"a">>, {integer, 1}}]},
+                  {group_by, []},
+                  {limit, [10]},
+                  {offset, [20]},
+                  {order_by, []}
+                 ]},
+        riak_ql_parser:ql_parse(riak_ql_lexer:get_tokens(Query_sql))
+    ).
+
+offset_limit_test() ->
+    Query_sql =
+        "SELECT a, b FROM mytab "
+        "WHERE a = 1 "
+        "ORDER BY a, b OFFSET 20 LIMIT 10;",
+    ?assertEqual(
+        {select, [
+                  {tables, <<"mytab">>},
+                  {fields, [{identifier, [<<"a">>]}, {identifier, [<<"b">>]}]},
+                  {where,  [{'=', <<"a">>, {integer, 1}}]},
+                  {group_by, []},
+                  {limit, [10]},
+                  {offset, [20]},
+                  {order_by, [{<<"a">>, asc, nulls_last}, {<<"b">>, asc, nulls_last}]}
+                 ]},
+        riak_ql_parser:ql_parse(riak_ql_lexer:get_tokens(Query_sql))
+    ).
+
+order_by_offset_limit_test() ->
+    Query_sql =
+        "SELECT a, b FROM mytab "
+        "WHERE a = 1 "
+        "OFFSET 20 LIMIT 10;",
+    ?assertEqual(
+        {select, [
+                  {tables, <<"mytab">>},
+                  {fields, [{identifier, [<<"a">>]}, {identifier, [<<"b">>]}]},
+                  {where,  [{'=', <<"a">>, {integer, 1}}]},
+                  {group_by, []},
+                  {limit, [10]},
+                  {offset, [20]},
+                  {order_by, []}
+                 ]},
+        riak_ql_parser:ql_parse(riak_ql_lexer:get_tokens(Query_sql))
+    ).
+
 order_by_1_test() ->
     Query_sql =
         "SELECT a, b FROM mytab "
